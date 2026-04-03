@@ -1,0 +1,48 @@
+{
+  "title": "Scheduler — Queue pressure",
+  "uid": "sched-queue-pressure",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["scheduler", "phase4"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Queue depth (approx XLEN)",
+      "description": "Stream length — not strictly unclaimed depth; pair with PEL.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "expr": "scheduler_queue_depth", "legendFormat": "depth" }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Dispatch / recovery errors",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "rate(scheduler_dispatch_tick_errors_total[5m])", "legendFormat": "dispatch" },
+        { "expr": "rate(scheduler_recovery_tick_errors_total[5m])", "legendFormat": "recovery" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue wait latency",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(scheduler_job_queue_wait_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(scheduler_job_queue_wait_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(scheduler_job_queue_wait_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 }
+    }
+  ]
+}

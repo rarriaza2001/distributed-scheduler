@@ -73,7 +73,7 @@ func dispatchLeader(ctx context.Context, coord *Coordinator) error {
 		Now:           now,
 		AssignLease: func(job store.Job) (string, time.Time, error) {
 			_ = job
-			return e2eWorkerID, now.Add(10*time.Minute), nil
+			return e2eWorkerID, now.Add(10 * time.Minute), nil
 		},
 	})
 	return err
@@ -286,14 +286,14 @@ func TestE2E_StaleFailureDoesNotOverwriteSuccess(t *testing.T) {
 	require.Equal(t, store.JobStatusSucceeded, j.Status)
 
 	require.NoError(t, coord.Life.HandleWorkerFailed(ctx, scheduler.WorkerFailedParams{
-		JobID:         jobID,
-		WorkerID:      e2eWorkerID,
-		Source:        "stale_worker",
-		ErrorMessage:  "late",
-		ErrorCode:     "late",
-		Retryable:     true,
-		NextRetryAt:   time.Now().UTC().Add(time.Hour),
-		Occurred:      time.Now().UTC(),
+		JobID:        jobID,
+		WorkerID:     e2eWorkerID,
+		Source:       "stale_worker",
+		ErrorMessage: "late",
+		ErrorCode:    "late",
+		Retryable:    true,
+		NextRetryAt:  time.Now().UTC().Add(time.Hour),
+		Occurred:     time.Now().UTC(),
 	}))
 
 	j2, err := store.NewPostgresJobStore().GetJobByID(ctx, pool, jobID)

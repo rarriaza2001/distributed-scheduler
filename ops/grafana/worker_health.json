@@ -1,0 +1,51 @@
+{
+  "title": "Scheduler — Worker health",
+  "uid": "sched-worker-health",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["scheduler", "phase4"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Workers alive (ZSET)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "expr": "scheduler_workers_alive", "legendFormat": "alive" }],
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Heartbeat rate",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "expr": "rate(scheduler_worker_heartbeat_total[5m])", "legendFormat": "beats/s" }],
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Jobs completed / s",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "expr": "rate(scheduler_jobs_completed_total[5m])", "legendFormat": "completed/s" }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Execution latency",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(scheduler_job_execution_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(scheduler_job_execution_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(scheduler_job_execution_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    }
+  ]
+}

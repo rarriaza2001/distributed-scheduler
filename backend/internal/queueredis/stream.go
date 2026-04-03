@@ -30,6 +30,7 @@ func (q *RedisStreamQueue) Submit(ctx context.Context, msg queue.JobMessage) err
 			"payload":         string(msg.Payload),
 			"priority":        strconv.Itoa(msg.Priority),
 			"scheduled_at":    strconv.FormatInt(msg.ScheduledAt.UnixMilli(), 10),
+			"created_at":      strconv.FormatInt(msg.CreatedAt.UnixMilli(), 10),
 			"idempotency_key": msg.IdempotencyKey,
 		},
 	}).Err()
@@ -126,6 +127,16 @@ func decodeJobMessage(values map[string]any) (queue.JobMessage, error) {
 		return queue.JobMessage{}, err
 	}
 
+	var createdAt time.Time
+	if v, ok := values["created_at"]; ok {
+		createdStr, err := asString(v)
+		if err == nil && createdStr != "" {
+			if ms, err := strconv.ParseInt(createdStr, 10, 64); err == nil {
+				createdAt = time.UnixMilli(ms)
+			}
+		}
+	}
+
 	return queue.JobMessage{
 		JobID:          jobID,
 		Queue:          queueName,
@@ -133,6 +144,7 @@ func decodeJobMessage(values map[string]any) (queue.JobMessage, error) {
 		Payload:        []byte(payloadStr),
 		Priority:       priority,
 		ScheduledAt:    time.UnixMilli(scheduledAtMs),
+		CreatedAt:      createdAt,
 		IdempotencyKey: idempotencyKey,
 	}, nil
 }

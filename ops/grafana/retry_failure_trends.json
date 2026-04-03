@@ -1,0 +1,44 @@
+{
+  "title": "Scheduler — Retry & failure trends",
+  "uid": "sched-retry-failure",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["scheduler", "phase4"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Retries by reason",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "expr": "sum by (reason) (rate(scheduler_job_retries_total[5m]))", "legendFormat": "{{reason}}" }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Terminal failures & abandoned",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "rate(scheduler_jobs_failed_total[5m])", "legendFormat": "terminal_failed" },
+        { "expr": "rate(scheduler_jobs_abandoned_total[5m])", "legendFormat": "abandoned" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "type": "text",
+      "title": "Recent failed jobs",
+      "options": {
+        "content": "Pair with HTTP `GET /debug/failed-jobs/recent?limit=50` on the scheduler service (metadata-only, bounded)."
+      },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 8 }
+    }
+  ]
+}

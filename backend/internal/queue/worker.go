@@ -2,8 +2,11 @@ package queue
 
 import (
 	"context"
+	"log/slog"
 	"sync/atomic"
 	"time"
+
+	"scheduler/internal/observability"
 )
 
 // JobHooks optionally reports lifecycle signals to the scheduler service (DB).
@@ -28,6 +31,9 @@ type Worker struct {
 	leaseInterval     time.Duration
 	leaseTTL          time.Duration
 	Hooks             *JobHooks
+
+	log     *slog.Logger
+	metrics *observability.Metrics
 }
 
 func NewWorker(
@@ -65,7 +71,15 @@ func NewWorker(
 		leaseStore:        leaseStore,
 		leaseInterval:     leaseInterval,
 		leaseTTL:          leaseTTL,
+		log:               nil,
+		metrics:           nil,
 	}
+}
+
+// SetObservability attaches optional structured logging and metrics (heartbeat, lease errors are logged).
+func (w *Worker) SetObservability(log *slog.Logger, m *observability.Metrics) {
+	w.log = log
+	w.metrics = m
 }
 
 func (w *Worker) Claim(ctx context.Context, count int, block time.Duration) ([]ClaimedMessage, error) {
@@ -115,11 +129,16 @@ func (w *Worker) releaseInFlight(n int) {
 func (w *Worker) ackDelivery(ctx context.Context, messages ...ClaimedMessage) error {
 	err := w.queue.Ack(ctx, w.workerID, messages...)
 	if err != nil {
+		if w.log != nil {
+			w.log.Error(observability.EventAckFailure, "event", observability.EventAckFailure, "worker_id", w.workerID, "err", err)
+		}
 		return err
 	}
 	if w.leaseStore != nil {
 		for _, m := range messages {
-			_ = w.leaseStore.Release(ctx, m.Job.JobID, w.workerID)
+			if rerr := w.leaseStore.Release(ctx, m.Job.JobID, w.workerID); rerr != nil && w.log != nil {
+				w.log.Error(observability.EventLeaseReleaseError, "event", observability.EventLeaseReleaseError, "worker_id", w.workerID, "job_id", m.Job.JobID, "err", rerr)
+			}
 		}
 	}
 	return nil
@@ -143,6 +162,9 @@ func (w *Worker) ExecuteOne(ctx context.Context, msg ClaimedMessage, handler fun
 	jobCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	startedAt := time.Now().UTC()
+	msg.StartedAt = startedAt
+
 	if w.Hooks != nil && w.Hooks.BeforeExecute != nil {
 		if err := w.Hooks.BeforeExecute(ctx, w.workerID, msg); err != nil {
 			w.releaseInFlight(1)
@@ -159,6 +181,9 @@ func (w *Worker) ExecuteOne(ctx context.Context, msg ClaimedMessage, handler fun
 	if err := handler(jobCtx, msg.Job); err != nil {
 		if w.Hooks != nil && w.Hooks.AfterFailure != nil {
 			_ = w.Hooks.AfterFailure(ctx, w.workerID, msg, err)
+		}
+		if w.log != nil {
+			w.log.Error(observability.EventWorkerExecFailure, "event", observability.EventWorkerExecFailure, "worker_id", w.workerID, "job_id", msg.Job.JobID, "err", err)
 		}
 		return err
 	}
@@ -178,7 +203,13 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 	}
 	err := w.heartbeatStore.Beat(ctx, w.workerID, w.heartbeatTTL)
 	if err != nil {
+		if w.log != nil {
+			w.log.Error(observability.EventHeartbeatError, "event", observability.EventHeartbeatError, "worker_id", w.workerID, "err", err)
+		}
 		return
+	}
+	if w.metrics != nil {
+		w.metrics.IncWorkerHeartbeat()
 	}
 
 	ticker := time.NewTicker(w.heartbeatInterval)
@@ -190,7 +221,15 @@ func (w *Worker) StartHeartbeat(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = w.heartbeatStore.Beat(ctx, w.workerID, w.heartbeatTTL)
+				if berr := w.heartbeatStore.Beat(ctx, w.workerID, w.heartbeatTTL); berr != nil {
+					if w.log != nil {
+						w.log.Error(observability.EventHeartbeatError, "event", observability.EventHeartbeatError, "worker_id", w.workerID, "err", berr)
+					}
+					continue
+				}
+				if w.metrics != nil {
+					w.metrics.IncWorkerHeartbeat()
+				}
 			}
 		}
 	}()
@@ -204,7 +243,9 @@ func (w *Worker) StartLeaseLoop(ctx context.Context, msg ClaimedMessage) {
 		return
 	}
 
-	_ = w.leaseStore.Acquire(ctx, msg.Job.JobID, w.workerID, w.leaseTTL)
+	if aerr := w.leaseStore.Acquire(ctx, msg.Job.JobID, w.workerID, w.leaseTTL); aerr != nil && w.log != nil {
+		w.log.Error(observability.EventLeaseAcquireError, "event", observability.EventLeaseAcquireError, "worker_id", w.workerID, "job_id", msg.Job.JobID, "err", aerr)
+	}
 
 	ticker := time.NewTicker(w.leaseInterval)
 	go func() {
@@ -214,7 +255,9 @@ func (w *Worker) StartLeaseLoop(ctx context.Context, msg ClaimedMessage) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = w.leaseStore.Renew(ctx, msg.Job.JobID, w.workerID, w.leaseTTL)
+				if rerr := w.leaseStore.Renew(ctx, msg.Job.JobID, w.workerID, w.leaseTTL); rerr != nil && w.log != nil {
+					w.log.Error(observability.EventLeaseRenewError, "event", observability.EventLeaseRenewError, "worker_id", w.workerID, "job_id", msg.Job.JobID, "err", rerr)
+				}
 			}
 		}
 	}()

@@ -279,7 +279,7 @@ func TestIntegration_RetryableFailThenRequeueDispatch(t *testing.T) {
 		AsOf:          next.Add(time.Second),
 		Limit:         10,
 		AssignLease: func(job store.Job) (string, time.Time, error) {
-			return "w", next.Add(10*time.Minute), nil
+			return "w", next.Add(10 * time.Minute), nil
 		},
 		Now: next.Add(time.Second),
 	})

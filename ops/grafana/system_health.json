@@ -1,0 +1,63 @@
+{
+  "title": "Scheduler — System health",
+  "uid": "sched-sys-health",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["scheduler", "phase4"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Queue depth (approx)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "expr": "scheduler_queue_depth", "legendFormat": "depth" }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Throughput / failures (rate)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "rate(scheduler_jobs_completed_total[5m])", "legendFormat": "completed/s" },
+        { "expr": "rate(scheduler_jobs_failed_total[5m])", "legendFormat": "terminal_failed/s" },
+        { "expr": "rate(scheduler_job_retries_total[5m])", "legendFormat": "retries/s" },
+        { "expr": "rate(scheduler_jobs_abandoned_total[5m])", "legendFormat": "abandoned/s" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "End-to-end latency (p50/p95/p99)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(scheduler_job_end_to_end_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(scheduler_job_end_to_end_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(scheduler_job_end_to_end_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 }
+    },
+    {
+      "type": "stat",
+      "title": "Leader",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "expr": "scheduler_is_leader", "legendFormat": "{{scheduler_id}}" }],
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 }
+    },
+    {
+      "type": "stat",
+      "title": "Leader changes (rate)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "expr": "rate(scheduler_leader_changes_total[5m])", "legendFormat": "{{scheduler_id}}" }],
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 }
+    }
+  ]
+}

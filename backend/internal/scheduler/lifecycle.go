@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"scheduler/internal/observability"
 	"scheduler/internal/store"
 )
 
@@ -24,12 +26,23 @@ type JobLifecycle struct {
 	pool  *pgxpool.Pool
 	jobs  store.JobStore
 	audit store.AuditStore
+
+	metrics *observability.Metrics
+	log     *slog.Logger
+	failed  *observability.FailedRecentStore
 }
 
 // NewJobLifecycle constructs a lifecycle service. The pool must be the process-wide
 // pool from db.Open; repositories must not create their own pools.
 func NewJobLifecycle(pool *pgxpool.Pool, jobs store.JobStore, audit store.AuditStore) *JobLifecycle {
 	return &JobLifecycle{pool: pool, jobs: jobs, audit: audit}
+}
+
+// SetObservability wires Phase 4 metrics, structured logs, and optional failed-job ring (terminal dead only).
+func (s *JobLifecycle) SetObservability(m *observability.Metrics, log *slog.Logger, failed *observability.FailedRecentStore) {
+	s.metrics = m
+	s.log = log
+	s.failed = failed
 }
 
 // CreateJobParams carries producer insert + audit metadata for job_created.
@@ -301,7 +314,11 @@ func (s *JobLifecycle) HandleWorkerStarted(ctx context.Context, p WorkerStartedP
 	}); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.observeQueueWait(j, occurred)
+	return nil
 }
 
 // WorkerSucceededParams reports terminal success.
@@ -311,6 +328,8 @@ type WorkerSucceededParams struct {
 	Source   string
 	Occurred time.Time
 	Details  map[string]any
+	// WorkerStartedAt is the worker-local start time (aligned with HandleWorkerStarted.Occurred).
+	WorkerStartedAt time.Time
 }
 
 // HandleWorkerSucceeded moves running -> succeeded; never overwrites terminal success/dead.
@@ -376,7 +395,11 @@ func (s *JobLifecycle) HandleWorkerSucceeded(ctx context.Context, p WorkerSuccee
 	}); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.observeSuccessLatencies(j, p)
+	return nil
 }
 
 // WorkerFailedParams reports execution failure; caller supplies retry policy inputs.
@@ -390,6 +413,8 @@ type WorkerFailedParams struct {
 	NextRetryAt  time.Time // used when Retryable and not dead-lettered
 	Occurred     time.Time
 	Details      map[string]any
+	// WorkerStartedAt is the worker-local start time (aligned with HandleWorkerStarted.Occurred).
+	WorkerStartedAt time.Time
 }
 
 // HandleWorkerFailed moves running -> failed (retry scheduled) or -> dead. Ignores stale/duplicate reports
@@ -482,7 +507,11 @@ func (s *JobLifecycle) HandleWorkerFailed(ctx context.Context, p WorkerFailedPar
 	}); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.observeFailureLatencies(ctx, j, p, dead, newAttempts, errMsg, errCode, retryable)
+	return nil
 }
 
 func rollbackUnlessCommitted(ctx context.Context, tx pgx.Tx) {

@@ -9,9 +9,47 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
-	"scheduler/internal/queueredis"
 	"scheduler/internal/queue"
+	"scheduler/internal/queueredis"
 )
+
+// TestSchedulerLeader_NilReassigner_DispatchTick verifies Phase 4 default path: no legacy PEL reassignment.
+func TestSchedulerLeader_NilReassigner_DispatchTick(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	defer client.Close()
+
+	if err := client.Ping(ctx).Err(); err != nil {
+		t.Skipf("redis not available: %v", err)
+	}
+
+	_ = client.Del(ctx, queueredis.LeaderLeaseKey).Err()
+
+	lease := queueredis.NewRedisLeaderLease(client)
+	cfg := SchedulerLeaderConfig{
+		LeaseTTLSeconds:  5,
+		RenewInterval:    500 * time.Millisecond,
+		AcquireInterval:  100 * time.Millisecond,
+		ScanInterval:     100 * time.Millisecond,
+		ScanLimitPerTick: 10,
+	}
+
+	var ticks int32
+	l := NewSchedulerLeader("s-dispatch", lease, nil, cfg)
+	l.DispatchOnTick = func(context.Context) error {
+		atomic.AddInt32(&ticks, 1)
+		return nil
+	}
+
+	go l.Start(ctx)
+	time.Sleep(800 * time.Millisecond)
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	require.Greater(t, atomic.LoadInt32(&ticks), int32(0), "dispatch tick should run without PEL reassignment")
+}
 
 // TestLeaderStartupRace_OneActiveLeader verifies that in a healthy case only
 // one SchedulerLeader instance performs control-loop work at a time.

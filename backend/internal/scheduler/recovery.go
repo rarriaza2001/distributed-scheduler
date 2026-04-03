@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"scheduler/internal/observability"
 	"scheduler/internal/store"
 )
 
@@ -56,14 +58,22 @@ type ReconcileOptions struct {
 
 // Reconciler performs leader-only startup/periodic reconciliation: DB truth, Redis coordination.
 type Reconciler struct {
-	pool  *pgxpool.Pool
-	jobs  store.JobStore
-	audit store.AuditStore
+	pool    *pgxpool.Pool
+	jobs    store.JobStore
+	audit   store.AuditStore
+	metrics *observability.Metrics
+	log     *slog.Logger
 }
 
 // NewReconciler builds a reconciler. Use the same pool as JobLifecycle.
 func NewReconciler(pool *pgxpool.Pool, jobs store.JobStore, audit store.AuditStore) *Reconciler {
 	return &Reconciler{pool: pool, jobs: jobs, audit: audit}
+}
+
+// SetObservability wires Phase 4 metrics and logs for recovery passes.
+func (r *Reconciler) SetObservability(m *observability.Metrics, log *slog.Logger) {
+	r.metrics = m
+	r.log = log
 }
 
 // Reconcile runs one bounded pass. Must only be called when the scheduler instance is leader.
@@ -99,19 +109,31 @@ func (r *Reconciler) Reconcile(ctx context.Context, opts ReconcileOptions) error
 
 	if opts.RetryCoord != nil {
 		if err := r.reconcileStaleRedisRetries(ctx, opts.RetryCoord, lim.StaleRedisScan, now, src, opts.SchedulerID); err != nil {
+			if r.log != nil {
+				r.log.Error(observability.EventRecoveryTickError, "event", observability.EventRecoveryTickError, "step", "stale_redis_retries", "err", err)
+			}
 			return err
 		}
 	}
 	if err := r.reconcileLeasedExpired(ctx, now, lim.LeasedExpired, src, opts.SchedulerID); err != nil {
+		if r.log != nil {
+			r.log.Error(observability.EventRecoveryTickError, "event", observability.EventRecoveryTickError, "step", "leased_expired", "err", err)
+		}
 		return err
 	}
 	if opts.JobLease != nil {
 		if err := r.reconcileRunningAbandoned(ctx, opts.JobLease, now, lim.RunningProbe, src, opts.SchedulerID); err != nil {
+			if r.log != nil {
+				r.log.Error(observability.EventRecoveryTickError, "event", observability.EventRecoveryTickError, "step", "running_abandoned", "err", err)
+			}
 			return err
 		}
 	}
 	if opts.RetryCoord != nil {
 		if err := r.reconcileRestoreRetryCoord(ctx, opts.RetryCoord, lim.FailedRetry, now, src, opts.SchedulerID); err != nil {
+			if r.log != nil {
+				r.log.Error(observability.EventRecoveryTickError, "event", observability.EventRecoveryTickError, "step", "restore_retry_coord", "err", err)
+			}
 			return err
 		}
 	}
@@ -224,7 +246,7 @@ func (r *Reconciler) reconcileRunningAbandoned(ctx context.Context, probe JobLea
 			return err
 		}
 		if err := r.appendRecoveryAudit(ctx, tx, schedID, source, "recovery_running_abandoned_requeued", j.JobID, map[string]any{
-			"version":    j2.Version,
+			"version":     j2.Version,
 			"redis_lease": "inactive",
 		}, now); err != nil {
 			_ = tx.Rollback(ctx)
@@ -232,6 +254,14 @@ func (r *Reconciler) reconcileRunningAbandoned(ctx context.Context, probe JobLea
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return err
+		}
+		if r.metrics != nil {
+			r.metrics.IncJobsAbandoned()
+			r.metrics.IncRetry(observability.RetryReasonAbandoned)
+		}
+		if r.log != nil {
+			r.log.Info(observability.EventAbandonedJob, "event", observability.EventAbandonedJob,
+				"job_id", j.JobID, "reason", "running_abandoned_redis_lease_inactive")
 		}
 	}
 	return nil
@@ -258,6 +288,9 @@ func (r *Reconciler) reconcileRestoreRetryCoord(ctx context.Context, coord Retry
 		}
 		if err := coord.ScheduleRetry(ctx, j.JobID, retryAt); err != nil {
 			return err
+		}
+		if r.metrics != nil {
+			r.metrics.IncRetry(observability.RetryReasonRecoveryRestore)
 		}
 		if err := r.appendAuditOnly(ctx, schedID, source, "recovery_retry_coord_restored", j.JobID, map[string]any{
 			"retry_at": retryAt,

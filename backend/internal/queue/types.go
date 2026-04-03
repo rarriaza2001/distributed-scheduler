@@ -11,6 +11,7 @@ type JobMessage struct {
 	Payload        []byte
 	Priority       int
 	ScheduledAt    time.Time
+	CreatedAt      time.Time // job row creation time (Unix ms on wire); zero if legacy message
 	IdempotencyKey string
 }
 
@@ -20,6 +21,8 @@ type ClaimedMessage struct {
 	Job             JobMessage
 	ConsumerGroup   string
 	ConsumerName    string
+	// StartedAt is set by Worker.ExecuteOne when the handler begins (worker-local clock).
+	StartedAt time.Time
 }
 
 type RetryRequest struct {

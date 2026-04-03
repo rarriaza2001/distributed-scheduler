@@ -18,25 +18,25 @@ const (
 
 // Job is the full jobs row. Optional fields use pointers for SQL NULL.
 type Job struct {
-	JobID                string
-	Queue                string
-	Type                 string
-	Payload              []byte
-	Priority             int
-	Status               JobStatus
-	AttemptsMade         int
-	MaxAttempts          int
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	ScheduledAt          time.Time
-	LeaseOwnerWorkerID   *string
-	LeaseExpiresAt       *time.Time
-	LastErrorMessage     *string
-	LastErrorCode        *string
-	LastErrorRetryable   *bool
-	LastFailedAt         *time.Time
-	IdempotencyKey       *string
-	Version              int
+	JobID              string
+	Queue              string
+	Type               string
+	Payload            []byte
+	Priority           int
+	Status             JobStatus
+	AttemptsMade       int
+	MaxAttempts        int
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	ScheduledAt        time.Time
+	LeaseOwnerWorkerID *string
+	LeaseExpiresAt     *time.Time
+	LastErrorMessage   *string
+	LastErrorCode      *string
+	LastErrorRetryable *bool
+	LastFailedAt       *time.Time
+	IdempotencyKey     *string
+	Version            int
 }
 
 // InsertJobInput is an initial insert for a producer-created job (status queued).
@@ -55,12 +55,12 @@ type InsertJobInput struct {
 
 // AuditEventInput is one row in execution_audit.
 type AuditEventInput struct {
-	EventID      string
-	JobID        *string
-	WorkerID     *string
-	SchedulerID  *string
-	Source       string
-	Type         string
-	OccurredAt   time.Time
-	Details      []byte // JSON object; nil or empty -> '{}'
+	EventID     string
+	JobID       *string
+	WorkerID    *string
+	SchedulerID *string
+	Source      string
+	Type        string
+	OccurredAt  time.Time
+	Details     []byte // JSON object; nil or empty -> '{}'
 }

@@ -14,15 +14,16 @@ import (
 // Redis enqueue runs only after a successful dispatch transaction (AfterLeaseCommitted);
 // there is no atomic DB+Redis transaction. For authoritative rules, see package scheduler.
 //
-// Example leader tick (DispatchOnTick is only invoked while Redis leadership is held):
+// Example Phase 4 leader tick (split reconcile vs dispatch; both only run while Redis leadership is held):
 //
+//	leader.ReconcileOnTick = func(ctx context.Context) error {
+//	  now := time.Now().UTC()
+//	  return reconciler.Reconcile(ctx, scheduler.ReconcileOptions{
+//	    LeaderAllowed: true, Now: now, RetryCoord: redisRetrySchedule, JobLease: scheduler.LeaseProbeFunc(redisJobLease.IsActive),
+//	  })
+//	}
 //	leader.DispatchOnTick = func(ctx context.Context) error {
 //	  now := time.Now().UTC()
-//	  if err := reconciler.Reconcile(ctx, scheduler.ReconcileOptions{
-//	    LeaderAllowed: true, Now: now, RetryCoord: redisRetrySchedule, JobLease: scheduler.LeaseProbeFunc(redisJobLease.IsActive),
-//	  }); err != nil {
-//	    return err
-//	  }
 //	  _, err := coord.Dispatch(ctx, CoordinatorDispatchOptions{
 //	    LeaderAllowed: true, AsOf: now, Limit: 50, Now: now,
 //	    AssignLease: assign,
@@ -98,32 +99,38 @@ func (c *Coordinator) WorkerLifecycleHooks(workerSource string, policy FailedPol
 	}
 	return &queue.JobHooks{
 		BeforeExecute: func(ctx context.Context, workerID string, msg queue.ClaimedMessage) error {
+			occ := msg.StartedAt
+			if occ.IsZero() {
+				occ = time.Now().UTC()
+			}
 			return c.Life.HandleWorkerStarted(ctx, scheduler.WorkerStartedParams{
 				JobID:    msg.Job.JobID,
 				WorkerID: workerID,
 				Source:   workerSource,
-				Occurred: time.Now().UTC(),
+				Occurred: occ,
 			})
 		},
 		AfterSuccess: func(ctx context.Context, workerID string, msg queue.ClaimedMessage) error {
 			return c.Life.HandleWorkerSucceeded(ctx, scheduler.WorkerSucceededParams{
-				JobID:    msg.Job.JobID,
-				WorkerID: workerID,
-				Source:   workerSource,
-				Occurred: time.Now().UTC(),
+				JobID:           msg.Job.JobID,
+				WorkerID:        workerID,
+				Source:          workerSource,
+				Occurred:        time.Now().UTC(),
+				WorkerStartedAt: msg.StartedAt,
 			})
 		},
 		AfterFailure: func(ctx context.Context, workerID string, msg queue.ClaimedMessage, runErr error) error {
 			retryable, next, errMsg, errCode := policy(msg, runErr)
 			return c.Life.HandleWorkerFailed(ctx, scheduler.WorkerFailedParams{
-				JobID:        msg.Job.JobID,
-				WorkerID:     workerID,
-				Source:       workerSource,
-				ErrorMessage: errMsg,
-				ErrorCode:    errCode,
-				Retryable:    retryable,
-				NextRetryAt:  next,
-				Occurred:     time.Now().UTC(),
+				JobID:           msg.Job.JobID,
+				WorkerID:        workerID,
+				Source:          workerSource,
+				ErrorMessage:    errMsg,
+				ErrorCode:       errCode,
+				Retryable:       retryable,
+				NextRetryAt:     next,
+				Occurred:        time.Now().UTC(),
+				WorkerStartedAt: msg.StartedAt,
 			})
 		},
 	}
@@ -147,6 +154,7 @@ func StoreJobToQueueMessage(j store.Job) queue.JobMessage {
 		Payload:        j.Payload,
 		Priority:       j.Priority,
 		ScheduledAt:    j.ScheduledAt,
+		CreatedAt:      j.CreatedAt,
 		IdempotencyKey: idem,
 	}
 }
@@ -164,6 +172,7 @@ func InsertJobInputToQueueMessage(in store.InsertJobInput) queue.JobMessage {
 		Payload:        in.Payload,
 		Priority:       in.Priority,
 		ScheduledAt:    in.ScheduledAt,
+		CreatedAt:      in.CreatedAt,
 		IdempotencyKey: idem,
 	}
 }

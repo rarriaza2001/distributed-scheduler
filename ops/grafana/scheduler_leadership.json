@@ -1,0 +1,43 @@
+{
+  "title": "Scheduler — Leadership",
+  "uid": "sched-leadership",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["scheduler", "phase4"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "scheduler_is_leader",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "expr": "scheduler_is_leader", "legendFormat": "{{scheduler_id}}" }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "leader_changes_total rate",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [{ "expr": "rate(scheduler_leader_changes_total[5m])", "legendFormat": "{{scheduler_id}}" }],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Recovery / dispatch tick errors",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "rate(scheduler_recovery_tick_errors_total[5m])", "legendFormat": "recovery" },
+        { "expr": "rate(scheduler_dispatch_tick_errors_total[5m])", "legendFormat": "dispatch" }
+      ],
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 }
+    }
+  ]
+}
