@@ -1,0 +1,32 @@
+ExecutionAudit {
+  eventId: string
+  jobId?: string
+  workerId?: string
+  schedulerId?: string
+  type:
+    | "job_created"
+    | "job_leased"
+    | "job_started"
+    | "job_succeeded"
+    | "job_failed"
+    | "job_requeued"
+    | "job_dead_lettered"
+    | "worker_registered"
+    | "worker_heartbeat"
+    | "worker_timed_out"
+    | "leadership_acquired"
+    | "leadership_renewed"
+    | "leadership_lost"
+  occurredAt: timestamp
+  details: object
+}
+
+Stored in DB for:
+- debugging
+- incident review
+- metrics derivation
+- performance analysis
+- interview/demo visibility
+
+It is not the source of truth for current job state.
+It is the historical trail of what happened.

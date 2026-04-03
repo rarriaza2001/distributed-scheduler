@@ -1,0 +1,94 @@
+Job Shape:
+This is the source of truth for a unit of work.
+It answers:
+- what should be executed,
+- when it should run,
+- who currently owns it,
+- how many times it has failed,
+- whether it is still retryable,
+- what final state it ended in
+
+Job {
+  jobId: string
+  queue: string
+  type: string
+  payload: object
+  priority: number
+  status: "queued" | "leased" | "running" | "succeeded" | "failed" | "dead"
+  attemptsMade: number
+  maxAttempts: number
+  createdAt: timestamp
+  scheduledAt: timestamp
+  leaseOwnerWorkerId?: string
+  leaseExpiresAt?: timestamp
+  lastError?: {
+    message: string
+    code?: string
+    retryable: boolean
+    failedAt: timestamp
+  }
+  idempotencyKey?: string
+}
+
+It is used to:
+- enqueue work,
+- decide whether a job is eligible to run,
+- track ownership while in-flight,
+- record success/failure outcome,
+- decide whether to retry,
+- prevent infinite retries,
+- support stuck-job recovery.
+
+Who writes it
+- Primarily: scheduler
+- sometimes producer/client API at creation time
+- sometimes worker indirectly, but usually through scheduler-mediated state transition
+
+Writes by role
+- producer/API
+    - creates the initial job
+- scheduler
+    - sets status to leased
+    - sets leaseOwnerWorkerId
+    - sets leaseExpiresAt
+    - updates retry metadata
+    - moves to dead
+- worker
+    - does not usually mutate the full job directly
+    - instead reports outcome: success, failure, running-started
+
+Who reads it
+1. scheduler → constantly
+2. workers → usually only the payload / job assignment part
+3. audit/monitoring layer → reads status and timings
+4. stuck-job / retry logic → reads lease and attempts state
+
+Job Lifecycle (DB + Redis):
+
+Producer → DB: create job (status=queued, scheduledAt=now)
+
+Scheduler → DB: set status=leased, leaseOwnerWorkerId, leaseExpiresAt
+
+Scheduler → Redis: enqueue to stream / deliver to consumer group
+
+Worker → Redis: consume message (pending)
+
+Worker → Scheduler (via Redis/event): report started
+
+Scheduler → DB: set status=running
+
+Worker → Scheduler: report failed
+
+Scheduler → DB: increment attemptsMade, set status=failed, set lastError
+
+Scheduler → DB: set scheduledAt = now + backoff
+
+Scheduler → Redis: add to retry schedule
+
+Scheduler → Redis: retry becomes due → move back to stream
+
+Scheduler → DB: set status=queued, clear lease
+
+Max attempts reached → DB: set status=dead
+
+Scheduler → Redis: remove from retry schedule / no requeue

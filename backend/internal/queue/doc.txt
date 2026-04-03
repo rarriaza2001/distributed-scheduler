@@ -1,0 +1,78 @@
+Package layout (backend/internal):
+- queue — transport contracts (Queue), message types, worker/submitter, benchmark helpers.
+- scheduler — leader election lease, SchedulerLeader, Reassigner (abandoned delivery resubmit).
+- queueredis — Redis implementations for queue.Queue and the stores the scheduler/worker use.
+
+Queue interface
+
+type Queue interface {
+    Submit(ctx context.Context, msg JobMessage) error
+    Claim(ctx context.Context, workerID string, count int, block time.Duration) ([]ClaimedMessage, error)
+    Ack(ctx context.Context, workerID string, messages ...ClaimedMessage) error
+}
+
+This is the boundary for queue operations.
+
+Why it exists
+- So scheduler/worker code does not directly depend on raw Redis commands everywhere.
+
+Instead of having:
+- XADD in one file
+- XREADGROUP in another
+- XACK somewhere else
+- retry scheduling logic scattered around
+- you force all queue transport actions through one controlled contract.
+
+What it does
+- It says: “these are the only queue-level actions Phase 1 cares about.”
+- Submit(...) → put a job into queue transport
+- Claim(...) → worker asks for work
+- Ack(...) → confirm successful processing from the queue side
+
+When it is used
+- Scheduler / producer side uses Submit
+- Worker side uses Claim
+- After success someone uses Ack
+
+Important note
+- This interface is not the DB lifecycle API. It is only the queue transport API.
+
+JobMessage
+type JobMessage struct {
+    JobID          string
+    Queue          string
+    Type           string
+    Payload        []byte
+    Priority       int
+    ScheduledAt    time.Time
+    IdempotencyKey string
+}
+
+This is the message envelope that gets handed to the queue layer.
+
+Why it exists
+- The DB Job record is the full durable truth. But the queue does not need the full DB object. It needs a transport-safe shape containing the minimum information required to deliver and execute work.
+- So JobMessage is the queue-facing representation of a job.
+
+What each field means
+
+JobID
+The durable job identity. This is the bridge back to DB truth.
+
+Queue
+Which logical queue/stream this belongs to.
+
+Type
+What kind of job this is. Useful for routing execution logic.
+
+Payload
+The serialized execution input. This is what the worker actually uses to perform the task.
+
+Priority
+Queue-level metadata. Even if Phase 1 does not fully implement priority ordering yet, the envelope can carry it.
+
+ScheduledAt
+Useful for delayed execution semantics or validating whether something should run now.
+
+IdempotencyKey
+The key used to protect side effects from duplicate delivery/execution.

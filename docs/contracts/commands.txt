@@ -1,0 +1,63 @@
+Commands are instructions / intended actions
+
+SchedulerCommand =
+  | DispatchJob
+  | MarkJobRunning
+  | MarkJobSucceeded
+  | MarkJobFailed
+  | RequeueJob
+  | DeclareWorkerDead
+  | SweepStuckJobs
+
+They model the scheduler’s control-plane decisions. They clarify:
+1. what authority the scheduler has
+2. what state transitions are legitimate
+3. what internal operations exist
+
+Who writes them: scheduler
+
+Who reads them
+- internal scheduler logic
+- logs / audit
+
+DispatchJob
+
+Scheduler decision:
+- assign this job to this worker
+- give it lease until X
+
+MarkJobRunning
+Represents:
+- worker has actually started execution
+- Useful because dispatch and actual start are not always the same moment.
+
+MarkJobSucceeded
+Represents final success transition.
+
+MarkJobFailed
+Represents failure outcome and error metadata.
+- does not necessarily mean terminal
+- may later lead to retry or dead-letter
+
+RequeueJob
+
+Scheduler says:
+- put this job back into eligible future execution at nextRetryAt
+- Used for:
+    - retry
+    - worker timeout recovery
+    - stuck-job recovery
+
+DeclareWorkerDead
+
+Scheduler conclusion:
+- this worker timed out / is no longer trusted alive
+- Used to trigger:
+    - job recovery
+    - capacity removal
+    - observability
+
+SweepStuckJobs
+A control action representing:
+- perform scan for timed-out or orphaned jobs
+- This is more of an operational command than a job-level command.

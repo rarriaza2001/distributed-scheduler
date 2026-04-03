@@ -1,0 +1,57 @@
+governs retry behavior for each job.
+
+RetryMetadata {
+  jobId: string
+  attemptsMade: number
+  maxAttempts: number
+  nextRetryAt?: timestamp
+  backoffStrategy: "fixed" | "exponential"
+  backoffMs: number
+  lastFailure?: {
+    message: string
+    code?: string
+    retryable: boolean
+    failedAt: timestamp
+  }
+}
+
+It tells scheduler:
+- whether this job should be retried,
+- when it should be retried,
+- when retries should stop.
+
+Who writes it
+- mostly scheduler
+- worker provides failure result, scheduler derives retry state
+
+Who reads it
+- scheduler retry loop
+- audit/debug layer
+
+Without explicit retry metadata:
+1. retries become ad hoc
+2. timing rules become inconsistent
+3. dead-letter handling gets messy
+4. performance claims become unconvincing
+
+Retry Lifecycle (DB + Redis)
+
+Worker → Scheduler: report failure
+
+Scheduler → DB: update attemptsMade, lastFailure, scheduledAt = now + backoff
+
+Scheduler → Redis: add jobId to retry schedule
+
+Scheduler → Redis: poll for due retries
+
+Scheduler → Redis: remove jobId from retry schedule
+
+Scheduler → DB: verify retry eligibility (attemptsMade < maxAttempts, retryable=true)
+
+Scheduler → Redis: re-enqueue job to stream
+
+Scheduler → DB: set status=queued
+
+If max attempts reached → DB: set status=dead
+
+Scheduler → Redis: do not re-enqueue

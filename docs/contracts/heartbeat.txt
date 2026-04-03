@@ -1,0 +1,35 @@
+worker’s periodic liveness and capacity signal.
+
+Heartbeat {
+  workerId: string
+  sentAt: timestamp
+  activeJobs: number
+  availableSlots: number
+  status: "healthy" | "draining" | "unhealthy"
+  runningJobIds: string[]
+}
+
+Heartbeat tells scheduler:
+- worker is still alive,
+- how busy it is,
+- whether it should get more work,
+- what jobs it claims to currently be running.
+
+This is how the scheduler distinguishes:
+- healthy but full,
+- healthy and available,
+- alive but draining,
+- silent and potentially dead.
+
+Who writes it: worker
+
+Who reads it:
+- scheduler
+- timeout detection
+- audit monitoring
+
+Without heartbeat:
+- scheduler cannot distinguish slow worker from dead worker
+- leased jobs can remain in limbo
+- capacity-aware dispatch becomes weak
+
