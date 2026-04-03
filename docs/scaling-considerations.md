@@ -1,123 +1,112 @@
-# Scaling Considerations
+# Scaling Considerations — Distributed Job Scheduler
 
-## Current Architecture Limits
+## 1. Horizontal Worker Scaling
 
-### Single Scheduler Leader
-- Only one scheduler performs:
-  - dispatch
-  - retries
-  - recovery
-- Bottleneck under high load
-
----
-
-## Worker Scaling
-
-### Horizontal Scaling
-- Add more workers
-- Workers are stateless
-- Scales independently of scheduler
+### Strategy
+- Add more workers to increase throughput
 
 ### Limits
-- Scheduler must keep up with:
-  - dispatch decisions
-  - heartbeat processing
+- DB contention
+- Redis stream throughput
 
 ---
 
-## Redis Scaling
+## 2. Scheduler Scaling
 
-### Current Role
-- Queue transport (Streams)
-- Coordination (heartbeats, leadership, retry)
+### Strategy
+- Multiple schedulers (leader election)
+
+### Constraint
+- Only one active leader
+
+---
+
+## 3. Redis Scaling
+
+### Strategy
+- vertical scaling first
+- clustering if needed
 
 ### Risks
-- Single Redis instance = SPOF
-- High throughput may saturate Redis
-
-### Future Options
-- Redis clustering
-- Sharded queues
+- cross-slot complexity
+- stream partitioning complexity
 
 ---
 
-## DB Scaling
+## 4. Postgres Scaling
 
-### Current Role
-- Job lifecycle
-- ExecutionAudit
+### Strategy
+- indexing
+- read replicas
+- partitioning (future)
 
-### Risks
-- High write volume (audit + job updates)
-- Retry-heavy workloads increase load
-
-### Future Options
-- Read replicas
-- Partitioning jobs by queue
-- Archiving old audit data
+### Risk
+- write contention on jobs table
 
 ---
 
-## Scheduler Bottleneck
+## 5. Queue Throughput
 
-### Problem
-- Single leader handles all logic
-
-### Future Improvements
-- Partition queues across multiple schedulers
-- Shard by queue or job type
-- Move toward partial decentralization
+### Bottlenecks
+- Redis XREADGROUP latency
+- worker processing speed
 
 ---
 
-## Retry Scaling
+## 6. Job Duration Impact
 
-### Current Model
-- Redis sorted set for delayed retries
-
-### Risks
-- Large retry sets → slow scans
-
-### Future Improvements
-- Bucketed retry queues
-- Time-window partitioning
+### Long jobs
+- require frequent lease renewal
+- increase recovery complexity
 
 ---
 
-## Observability Scaling
+## 7. Retry Scaling
 
-### ExecutionAudit Growth
-- Append-only → unbounded growth
+### Risk
+- exponential retries amplify load
 
-### Future Improvements
-- Retention policies
-- Aggregation pipelines
-- Metrics extraction
-
----
-
-## Throughput Considerations
-
-### Key Constraints
-- Scheduler decision rate
-- Redis throughput
-- DB write throughput
+### Mitigation
+- backoff
+- retry limits
 
 ---
 
-## Future Evolution Path
+## 8. Observability Scaling
 
-1. Scale workers horizontally
-2. Optimize Redis usage
-3. Partition queues
-4. Introduce scheduler sharding
-5. Add observability + metrics pipelines
+### Risk
+- too many metrics
+
+### Strategy
+- keep low cardinality
+- aggregate signals
 
 ---
 
-## Key Principle
+## 9. Failure Recovery Scaling
 
-Scale by:
-- separating coordination from execution
-- minimizing shared bottlenecks
-- keeping scheduler logic efficient
+### Recovery loops must:
+- be bounded
+- avoid scanning entire DB frequently
+
+---
+
+## 10. Future Scaling Paths
+
+- multiple queues
+- priority queues
+- sharded schedulers
+- region-based deployment
+
+---
+
+## Summary
+
+Scaling is primarily:
+- worker-driven
+- DB-limited
+- coordination-light
+
+System scales well horizontally as long as:
+- DB contention is controlled
+- metrics remain bounded

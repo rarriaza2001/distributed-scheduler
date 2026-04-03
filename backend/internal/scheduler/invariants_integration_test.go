@@ -1,6 +1,6 @@
 //go:build integration
 
-// Invariant-focused integration tests (Phase 4). Complements recovery_integration_test.go:
+// Invariant-focused integration tests. Complements recovery_integration_test.go:
 //
 //	— Restore missing retry ZSET from DB: TestRecovery_RestoresRetryCoordWhenMissing
 //	— Stale retry Z vs terminal DB: TestRecovery_RemovesStaleRetryWhenTerminal
